@@ -165,6 +165,7 @@ class ChatEngine {
      */
     async registerVenue({
         venueId,
+        collectionName,
         personaName = 'Guide',
         defaultEmoji = '💬',
         venueName = '',
@@ -182,6 +183,7 @@ class ChatEngine {
         graphPath = null,
         geojsonPath = null
     }) {
+        const activeCollectionName = collectionName || `${venueId}_collection`;
         const venueData = {
             personaName,
             defaultEmoji,
@@ -206,12 +208,12 @@ class ChatEngine {
         // 1. Connect to ChromaDB collection
         try {
             venueData.collection = await this.chromaClient.getOrCreateCollection({
-                name: `${venueId}_collection`,
+                name: activeCollectionName,
                 embeddingFunction: this.embedFunction
             });
-            console.log(`[SDK] Connected to ChromaDB collection: ${venueId}_collection`);
+            console.log(`[SDK] Connected to ChromaDB collection: ${activeCollectionName}`);
         } catch (err) {
-            console.error(`[SDK] Failed to initialize ChromaDB collection for ${venueId}:`, err.message);
+            console.error(`[SDK] Failed to initialize ChromaDB collection ${activeCollectionName} for ${venueId}:`, err.message);
         }
 
         // 2. Load Graph Data
