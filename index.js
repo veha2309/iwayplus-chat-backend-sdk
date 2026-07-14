@@ -525,8 +525,34 @@ Subject:`;
                     messages: [{ role: 'user', content: prompt }],
                     options: { temperature: 0.0, num_predict: 20 }
                 });
-                extractedSubject = (resp.message?.content || '').trim().replace(/['"]/g, '');
-                console.log(`[SDK] [LLM-EXTRACT] Extracted: "${extractedSubject}"`);
+                let ext = (resp.message?.content || '').trim().toLowerCase();
+                ext = ext.split(/[.!?\n]/)[0].trim();
+                ext = ext.replace(/[^a-zA-Z0-9\s\u0900-\u097F]/g, '').trim();
+
+                if (ext.split(/\s+/).length > 3 || ext.length < 2) {
+                    extractedSubject = 'general';
+                } else {
+                    let candidate = null;
+                    const registry = venue.registry;
+                    if (registry) {
+                        if (registry.lookup && registry.lookup[ext]) {
+                            candidate = registry.lookup[ext];
+                        } else if (registry.canonicalNames) {
+                            const exactHit = registry.canonicalNames.find(n => n.toLowerCase() === ext);
+                            if (exactHit) {
+                                candidate = exactHit;
+                            } else {
+                                const fuzzyHit = registry.canonicalNames.find(n => {
+                                    const cws = n.toLowerCase().split(/[^a-zA-Z0-9]+/);
+                                    return cws.some(cw => cw.length >= 4 && Math.abs(ext.length - cw.length) <= 1 && ext.includes(cw));
+                                });
+                                if (fuzzyHit) candidate = fuzzyHit;
+                            }
+                        }
+                    }
+                    extractedSubject = candidate || ext;
+                }
+                console.log(`[SDK] [LLM-EXTRACT] Extracted & Sanitized: "${extractedSubject}"`);
             } catch (err) {
                 console.error('[SDK] Extractor failed, falling back to general:', err.message);
                 extractedSubject = 'general';
