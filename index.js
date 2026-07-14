@@ -509,7 +509,8 @@ class ChatEngine {
         buildNavigationAnswer = null,
         QUERY_STOP_WORDS = new Set(),
         ADJECTIVE_BLACKLIST = new Set(),
-        facilitySynonyms = {}
+        facilitySynonyms = {},
+        deepSearch = false
     }) {
         const venue = this.venues.get(venueId);
         if (!venue) {
@@ -694,9 +695,9 @@ Subject:`;
                 .slice(0, 5);
         }
 
-        // Check Graph Traversal augmentation
+        // Check Graph Traversal augmentation (DeepSearch ONLY)
         let graphAugmented = false;
-        if (venue.graph && finalSubject && finalSubject !== 'general') {
+        if (deepSearch && venue.graph && finalSubject && finalSubject !== 'general') {
             const cleanSub = finalSubject.toLowerCase();
             const matchedNode = venue.graph.nodes.find(n => n.id && n.id.toLowerCase().includes(cleanSub));
             if (matchedNode) {
