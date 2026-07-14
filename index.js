@@ -140,13 +140,21 @@ class ChatEngine {
     }
 
     /**
-     * Register a new venue (zoo, hospital, mall) with its configurations and data
+     * Register a new venue (hospital, museum, mall, etc.) with its configurations and data
      */
     async registerVenue({
         venueId,
-        personaName = 'Shera',
-        defaultEmoji = '🦁',
-        zooRegistry,
+        personaName = 'Guide',
+        defaultEmoji = '💬',
+        venueName = '',
+        venueType = '',
+        exampleEntityMissing = '',
+        exampleEntityPartial = '',
+        hindiVenueType = '',
+        hindiVenueName = '',
+        closedDay = null,
+        hindiClosedDay = null,
+        registry,
         facilitySynonyms = {},
         hindiDict = {},
         hindiGlossaryReplacements = {},
@@ -156,7 +164,15 @@ class ChatEngine {
         const venueData = {
             personaName,
             defaultEmoji,
-            zooRegistry,
+            venueName,
+            venueType,
+            exampleEntityMissing,
+            exampleEntityPartial,
+            hindiVenueType,
+            hindiVenueName,
+            closedDay,
+            hindiClosedDay,
+            registry,
             facilitySynonyms,
             hindiDict,
             hindiGlossaryReplacements,
@@ -206,12 +222,12 @@ class ChatEngine {
             'cat', 'cats', 'dog', 'dogs', 'pet', 'pets', 'zebra', 'jebra', 'ज़ेब्रा'
         ]);
 
-        if (zooRegistry) {
-            for (const [phrase, name] of Object.entries(zooRegistry.lookup || {})) {
+        if (registry) {
+            for (const [phrase, name] of Object.entries(registry.lookup || {})) {
                 if (TRIE_BLACKLIST.has(phrase.toLowerCase())) continue;
                 entries.push([phrase.toLowerCase(), name]);
             }
-            for (const name of (zooRegistry.canonicalNames || [])) {
+            for (const name of (registry.canonicalNames || [])) {
                 const lower = name.toLowerCase();
                 if (TRIE_BLACKLIST.has(lower)) continue;
                 if (!entries.some(e => e[0] === lower)) {
@@ -414,9 +430,9 @@ class ChatEngine {
     /**
      * Map query keywords to related cards
      */
-    findRelatedAnimals(venueId, subject, queryText, QUERY_STOP_WORDS = new Set(), ADJECTIVE_BLACKLIST = new Set()) {
+    findRelatedEntities(venueId, subject, queryText, QUERY_STOP_WORDS = new Set(), ADJECTIVE_BLACKLIST = new Set()) {
         const venue = this.venues.get(venueId);
-        if (!venue || !venue.zooRegistry) return [];
+        if (!venue || !venue.registry) return [];
 
         const seeds = new Set();
         if (queryText) {
@@ -444,9 +460,9 @@ class ChatEngine {
 
         const related = new Set();
         for (const seed of seeds) {
-            for (const name of (venue.zooRegistry.rawNames || [])) {
+            for (const name of (venue.registry.rawNames || [])) {
                 const cleanName = name.replace(/\s+\d+$/, '').trim();
-                if (venue.zooRegistry.eventNames?.has(cleanName)) continue; // skip events
+                if (venue.registry.eventNames?.has(cleanName)) continue; // skip events
                 const nameLower = name.toLowerCase().replace(/[0-9]/g, '');
                 if (new RegExp(`\\b${seed}\\b`, 'i').test(nameLower)) {
                     related.add(name);
@@ -530,7 +546,7 @@ Subject:`;
             }
         }
 
-        const isEventQuery = (venue.zooRegistry.eventNames || new Set()).has(extractedSubject);
+        const isEventQuery = (venue.registry?.eventNames || new Set()).has(extractedSubject);
         const isLocationIntent = isNavigationQuery(question);
 
         // 4. Perform Search (ChromaDB + GraphRAG)
@@ -552,7 +568,7 @@ Subject:`;
         finalSubject = extractedSubject !== 'general' ? extractedSubject : searchResult.subject;
 
         // Augment with related cards
-        const related = this.findRelatedAnimals(venueId, finalSubject, question, QUERY_STOP_WORDS, ADJECTIVE_BLACKLIST);
+        const related = this.findRelatedEntities(venueId, finalSubject, question, QUERY_STOP_WORDS, ADJECTIVE_BLACKLIST);
         if (related.length > 0) {
             references = [...new Set([...references, ...related])]
                 .filter(r => r.toLowerCase().replace(/\s+\d+$/, '').trim() !== finalSubject.toLowerCase().replace(/\s+\d+$/, '').trim())
@@ -637,43 +653,47 @@ Subject:`;
         const NO_THOUGHT_INSTRUCTION_EN = "You may reason inside <think>...</think> tags. Keep your thinking block extremely short (at most 1-2 sentences/30 tokens) to save time before providing your final response in English.";
         const NO_THOUGHT_INSTRUCTION_HI = "You may reason inside <think>...</think> tags. Keep your thinking block extremely short (at most 1-2 sentences/30 tokens) to save time. IMPORTANT: You must write your final response ENTIRELY in Hindi.";
 
-        // Set up location instructions (excluding other animal names so it doesn't hallucinate layout)
+        // Set up location instructions (excluding registry canonical names so it doesn't hallucinate layout)
         let hiLocRule = '';
         let enLocRule = '';
+        const registryCanonicalNames = (venue.registry?.canonicalNames || venue.zooRegistry?.canonicalNames || []);
         if (isLocationIntent && references.length > 0) {
-            const locationRefs = references.filter(ref => !(venue.zooRegistry?.canonicalNames || []).includes(ref));
+            const locationRefs = references.filter(ref => !registryCanonicalNames.includes(ref));
             if (locationRefs.length > 0) {
                 const refNames = locationRefs.join(', ');
-                hiLocRule = `\n5. महत्वपूर्ण: उपयोगकर्ता पूछ रहा है कि वे कहाँ मिल सकते हैं। उन्हें सीधे बताएं कि वे चिड़ियाघर में निम्नलिखित स्थानों पर मिल सकते हैं: ${refNames}।`;
-                enLocRule = `\n5. IMPORTANT: The user is asking where to find them. Explicitly state they can be found at the following exhibits/locations: ${refNames}.`;
+                hiLocRule = `\n5. महत्वपूर्ण: उपयोगकर्ता पूछ रहा है कि वे कहाँ मिल सकते हैं। उन्हें सीधे बताएं कि वे ${venue.hindiVenueType} में निम्नलिखित स्थानों पर मिल सकते हैं: ${refNames}।`;
+                enLocRule = `\n5. IMPORTANT: The user is asking where to find them. Explicitly state they can be found at the following locations: ${refNames}.`;
             }
         }
 
         if (matchedFacility === 'Timings & Hours') {
+            const closedRuleHi = venue.closedDay ? `2. ${venue.hindiVenueType} ${venue.hindiClosedDay} को बंद रहता है।` : '';
+            const closedRuleEn = venue.closedDay ? `2. The ${venue.venueType} is strictly CLOSED on ${venue.closedDay}s.` : '';
+
             systemPrompt = isHindi
-                ? `आप ${venue.personaName} हैं, जो चिड़ियाघर के मार्गदर्शक हैं।
+                ? `आप ${venue.personaName} हैं, जो ${venue.hindiVenueName} के मार्गदर्शक हैं।
 ${NO_THOUGHT_INSTRUCTION_HI}
 संदर्भ (Context): ${trimmedContext}
 नियम:
 1. केवल संदर्भ का उपयोग करके समय संबंधी प्रश्न का उत्तर दें।
-2. चिड़ियाघर शुक्रवार को बंद रहता है।
+${closedRuleHi}
 3. जवाब केवल 1 या 2 वाक्यों में दें। अंत में एक इमोजी लगाएं ${venue.defaultEmoji}।`
-                : `You are ${venue.personaName}, the guide.
+                : `You are ${venue.personaName}, the guide at ${venue.venueName}.
 ${NO_THOUGHT_INSTRUCTION_EN}
 Context: ${trimmedContext}
 Rules:
 1. Answer timing questions using ONLY the context.
-2. The zoo is strictly CLOSED on Fridays.
+${closedRuleEn}
 3. Limit response strictly to 1 or 2 sentences. End with exactly one emoji ${venue.defaultEmoji}.`;
         } else {
             systemPrompt = isHindi
-                ? `आप दिल्ली चिड़ियाघर के गाइड '${venue.personaName}' हैं।
+                ? `आप ${venue.hindiVenueName} के गाइड '${venue.personaName}' हैं।
 ${NO_THOUGHT_INSTRUCTION_HI}
 संदर्भ (Context): ${trimmedContext}
 नियम:
 1. दिए गए संदर्भ का उपयोग करके सीधे उपयोगकर्ता के सवाल का जवाब दें।
 2. जवाब केवल 1 या 2 वाक्यों में (अधिकतम 25 शब्द) रखें। अंत में एक इमोजी लगाएं ${venue.defaultEmoji}।${hiLocRule}`
-                : `You are ${venue.personaName}, the friendly guide.
+                : `You are ${venue.personaName}, the friendly guide at the ${venue.venueName}.
 ${NO_THOUGHT_INSTRUCTION_EN}
 Context: ${trimmedContext}
 Rules:
@@ -688,7 +708,7 @@ Rules:
             if (isMultiSubject) {
                 const subjects = finalSubject.split(',').map(s => s.trim()).filter(Boolean);
                 const subjectList = subjects.map(s => `"${s}"`).join(' and ');
-                userMessageContent = `[Topics: ${finalSubject}] The user asked: "${userMessageContent}".\nInstruction: Briefly mention ONE key fact about EACH of ${subjectList} in your reply. Keep it to 1 short sentence per animal.`;
+                userMessageContent = `[Topics: ${finalSubject}] The user asked: "${userMessageContent}".\nInstruction: Briefly mention ONE key fact about EACH of ${subjectList} in your reply. Keep it to 1 short sentence per item.`;
             } else {
                 userMessageContent = `[Topic: ${finalSubject}] The user just said: "${userMessageContent}". \nInstruction: Reply to the user.`;
             }
