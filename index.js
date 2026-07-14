@@ -87,6 +87,27 @@ function truncateToTwoSentences(text, maxSentences = 2, maxChars = 280) {
     return result;
 }
 
+// Levenshtein distance helper
+function levenshtein(a, b) {
+    const tmp = [];
+    for (let i = 0; i <= a.length; i++) {
+        tmp[i] = [i];
+    }
+    for (let j = 0; j <= b.length; j++) {
+        tmp[0][j] = j;
+    }
+    for (let i = 1; i <= a.length; i++) {
+        for (let j = 1; j <= b.length; j++) {
+            tmp[i][j] = Math.min(
+                tmp[i - 1][j] + 1,
+                tmp[i][j - 1] + 1,
+                tmp[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
+            );
+        }
+    }
+    return tmp[a.length][b.length];
+}
+
 // ─────────────────────────────────────────────
 // Navigation query detector helper
 // ─────────────────────────────────────────────
@@ -510,13 +531,85 @@ class ChatEngine {
             return this.responseCache.get(cacheKey);
         }
 
-        // 2. Perform subject extraction using LLM-Bypass fastExtract or Ollama
+        // 2. Perform subject extraction using LLM-Bypass fastExtract or Holistic Heuristics
         let extractedSubject = this.fastExtract(venueId, question, QUERY_STOP_WORDS);
         if (extractedSubject) {
-            console.log(`[SDK] [LLM-BYPASS] Subject extracted: "${extractedSubject}"`);
+            console.log(`[SDK] [LLM-BYPASS] Subject extracted via Trie: "${extractedSubject}"`);
         } else {
-            // Wake up Ollama extractor model
-            try {
+            // Run Holistic Matcher before falling back to LLM
+            const cleanQLower = qLower.replace(/[?!.,;()'"]/g, '').trim();
+            const words = cleanQLower.split(/\s+/).filter(w => w.length > 0);
+            
+            // Check Conjunction / Multi-Entity Pre-Pass
+            let extracted = new Set();
+            const registry = venue.registry;
+            if (registry) {
+                // Check lookup keys
+                for (const key in (registry.lookup || {})) {
+                    const escapedKey = key.replace(/[.*+?^${}()|[\]\s\\]/g, '\\$&');
+                    const regex = new RegExp(`\\b${escapedKey}\\b`, 'i');
+                    if (regex.test(qLower)) {
+                        extracted.add(registry.lookup[key]);
+                    }
+                }
+                
+                if (extracted.size > 1) {
+                    extractedSubject = Array.from(extracted).join(', ');
+                    console.log(`[SDK] [HOLISTIC-BYPASS] Resolved multiple subjects: "${extractedSubject}"`);
+                }
+            }
+
+            if (!extractedSubject && registry && registry.canonicalNames) {
+                let bestEntity = null;
+                let highestScore = 0;
+                for (const canonical of registry.canonicalNames) {
+                    if (registry.eventNames?.has(canonical) && !/\bday\b/.test(qLower)) continue;
+                    const cWords = canonical.toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length > 2 && !QUERY_STOP_WORDS.has(w));
+                    if (cWords.length === 0) continue;
+
+                    let matchedTokens = 0;
+                    for (const cw of cWords) {
+                        let bestWordScore = 0;
+                        for (const qw of words) {
+                            if (QUERY_STOP_WORDS.has(qw)) continue;
+                            if (qw === cw) {
+                                bestWordScore = 1.0;
+                            } else if (qw.length >= 4 && cw.length >= 4 && (qw.includes(cw) || cw.includes(qw))) {
+                                bestWordScore = 0.7;
+                            } else if (qw.length >= 4 && cw.length >= 4) {
+                                const dist = levenshtein(qw, cw);
+                                const maxAllowed = cw.length >= 6 ? 2 : 1;
+                                if (dist <= maxAllowed) {
+                                    bestWordScore = 1.0 - (dist * 0.2);
+                                }
+                            }
+                        }
+                        if (bestWordScore > 0) matchedTokens += bestWordScore;
+                    }
+
+                    const overlapRatio = matchedTokens / cWords.length;
+                    let score = matchedTokens * 10 + overlapRatio * 5;
+                    if (canonical.toLowerCase().includes(qLower) || qLower.includes(canonical.toLowerCase())) score += 3;
+
+                    if (score > highestScore) {
+                        highestScore = score;
+                        bestEntity = canonical;
+                    }
+                }
+
+                if (highestScore >= 13 && bestEntity) {
+                    extractedSubject = bestEntity;
+                    if (registry.lookup && registry.lookup[extractedSubject.toLowerCase()]) {
+                        extractedSubject = registry.lookup[extractedSubject.toLowerCase()];
+                    }
+                    console.log(`[SDK] [HOLISTIC-BYPASS] Selected Subject: "${extractedSubject}" (Score: ${highestScore.toFixed(2)})`);
+                }
+            }
+
+            // Fallback to LLM if still general
+            if (!extractedSubject || extractedSubject === 'general') {
+                // Wake up Ollama extractor model
+                try {
                 const prompt = `Task: Extract the main subject or species name from the user question. Return ONLY the canonical name. If none is found, return "general".
 Question: "${question}"
 Subject:`;
@@ -558,6 +651,7 @@ Subject:`;
                 extractedSubject = 'general';
             }
         }
+    }
 
         // 3. Resolve matched facilities or events
         let isFacilityMatch = false;
