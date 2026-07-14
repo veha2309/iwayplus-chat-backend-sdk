@@ -126,8 +126,8 @@ class ChatEngine {
         this.ollama = new Ollama({ host: this.ollamaUrl });
         this.chromaClient = new ChromaClient({ path: this.chromaUrl });
         this.embedFunction = new OllamaEmbeddingFunction({
-            ollama_api_url: this.ollamaUrl + '/api/embeddings',
-            model_name: this.embedModel
+            url: this.ollamaUrl,
+            model: this.embedModel
         });
 
         // LRU Cache Pools
