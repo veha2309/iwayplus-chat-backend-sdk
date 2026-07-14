@@ -539,7 +539,7 @@ class ChatEngine {
             // Run Holistic Matcher before falling back to LLM
             const cleanQLower = qLower.replace(/[?!.,;()'"]/g, '').trim();
             const words = cleanQLower.split(/\s+/).filter(w => w.length > 0);
-            
+
             // Check Conjunction / Multi-Entity Pre-Pass
             let extracted = new Set();
             const registry = venue.registry;
@@ -552,7 +552,7 @@ class ChatEngine {
                         extracted.add(registry.lookup[key]);
                     }
                 }
-                
+
                 if (extracted.size > 1) {
                     extractedSubject = Array.from(extracted).join(', ');
                     console.log(`[SDK] [HOLISTIC-BYPASS] Resolved multiple subjects: "${extractedSubject}"`);
@@ -610,48 +610,48 @@ class ChatEngine {
             if (!extractedSubject || extractedSubject === 'general') {
                 // Wake up Ollama extractor model
                 try {
-                const prompt = `Task: Extract the main subject or species name from the user question. Return ONLY the canonical name. If none is found, return "general".
+                    const prompt = `Task: Extract the main subject or species name from the user question. Return ONLY the canonical name. If none is found, return "general".
 Question: "${question}"
 Subject:`;
-                const resp = await this.ollama.chat({
-                    model: this.extractorModel,
-                    messages: [{ role: 'user', content: prompt }],
-                    options: { temperature: 0.0, num_predict: 20 }
-                });
-                let ext = (resp.message?.content || '').trim().toLowerCase();
-                ext = ext.split(/[.!?\n]/)[0].trim();
-                ext = ext.replace(/[^a-zA-Z0-9\s\u0900-\u097F]/g, '').trim();
+                    const resp = await this.ollama.chat({
+                        model: this.extractorModel,
+                        messages: [{ role: 'user', content: prompt }],
+                        options: { temperature: 0.0, num_predict: 20 }
+                    });
+                    let ext = (resp.message?.content || '').trim().toLowerCase();
+                    ext = ext.split(/[.!?\n]/)[0].trim();
+                    ext = ext.replace(/[^a-zA-Z0-9\s\u0900-\u097F]/g, '').trim();
 
-                if (ext.split(/\s+/).length > 3 || ext.length < 2) {
-                    extractedSubject = 'general';
-                } else {
-                    let candidate = null;
-                    const registry = venue.registry;
-                    if (registry) {
-                        if (registry.lookup && registry.lookup[ext]) {
-                            candidate = registry.lookup[ext];
-                        } else if (registry.canonicalNames) {
-                            const exactHit = registry.canonicalNames.find(n => n.toLowerCase() === ext);
-                            if (exactHit) {
-                                candidate = exactHit;
-                            } else {
-                                const fuzzyHit = registry.canonicalNames.find(n => {
-                                    const cws = n.toLowerCase().split(/[^a-zA-Z0-9]+/);
-                                    return cws.some(cw => cw.length >= 4 && Math.abs(ext.length - cw.length) <= 1 && ext.includes(cw));
-                                });
-                                if (fuzzyHit) candidate = fuzzyHit;
+                    if (ext.split(/\s+/).length > 3 || ext.length < 2) {
+                        extractedSubject = 'general';
+                    } else {
+                        let candidate = null;
+                        const registry = venue.registry;
+                        if (registry) {
+                            if (registry.lookup && registry.lookup[ext]) {
+                                candidate = registry.lookup[ext];
+                            } else if (registry.canonicalNames) {
+                                const exactHit = registry.canonicalNames.find(n => n.toLowerCase() === ext);
+                                if (exactHit) {
+                                    candidate = exactHit;
+                                } else {
+                                    const fuzzyHit = registry.canonicalNames.find(n => {
+                                        const cws = n.toLowerCase().split(/[^a-zA-Z0-9]+/);
+                                        return cws.some(cw => cw.length >= 4 && Math.abs(ext.length - cw.length) <= 1 && ext.includes(cw));
+                                    });
+                                    if (fuzzyHit) candidate = fuzzyHit;
+                                }
                             }
                         }
+                        extractedSubject = candidate || ext;
                     }
-                    extractedSubject = candidate || ext;
+                    console.log(`[SDK] [LLM-EXTRACT] Extracted & Sanitized: "${extractedSubject}"`);
+                } catch (err) {
+                    console.error('[SDK] Extractor failed, falling back to general:', err.message);
+                    extractedSubject = 'general';
                 }
-                console.log(`[SDK] [LLM-EXTRACT] Extracted & Sanitized: "${extractedSubject}"`);
-            } catch (err) {
-                console.error('[SDK] Extractor failed, falling back to general:', err.message);
-                extractedSubject = 'general';
             }
         }
-    }
 
         // 3. Resolve matched facilities or events
         let isFacilityMatch = false;
@@ -853,7 +853,7 @@ Rules:
                     model: this.chatModel,
                     messages: chatMessages,
                     stream: true,
-                    options: { temperature: 0.3, num_predict: 1024 }
+                    options: { temperature: 0.3, num_predict: 128 }
                 });
 
                 const filter = new ThinkingFilter();
@@ -889,7 +889,7 @@ Rules:
                     model: this.chatModel,
                     messages: chatMessages,
                     stream: false,
-                    options: { temperature: 0.3, num_predict: 1024 }
+                    options: { temperature: 0.3, num_predict: 128 }
                 });
 
                 let answer = (resp.message?.content || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
