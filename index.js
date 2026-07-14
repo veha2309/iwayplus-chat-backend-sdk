@@ -488,7 +488,6 @@ class ChatEngine {
         buildNavigationAnswer = null,
         QUERY_STOP_WORDS = new Set(),
         ADJECTIVE_BLACKLIST = new Set(),
-        ANIMAL_MODIFIERS = new Set(),
         facilitySynonyms = {}
     }) {
         const venue = this.venues.get(venueId);

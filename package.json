@@ -3,9 +3,9 @@
   "version": "1.0.0",
   "main": "index.js",
   "dependencies": {
-    "chromadb": "^3.0.0",
-    "ollama": "^0.6.3",
     "@chroma-core/ollama": "^0.1.5",
-    "lru-cache": "^10.4.3"
+    "chromadb": "^3.0.0",
+    "lru-cache": "^10.4.3",
+    "ollama": "^0.6.3"
   }
 }
