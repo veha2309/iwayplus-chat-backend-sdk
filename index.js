@@ -319,11 +319,13 @@ class ChatEngine {
             return this.chromaSearchCache.get(cacheKey);
         }
 
+        console.log('[SDK] [DEBUG] searchRAG: Querying ChromaDB collection...');
         const results = await venue.collection.query({
             queryTexts: [query],
             nResults: limit,
             where: { language }
         });
+        console.log('[SDK] [DEBUG] searchRAG: ChromaDB query complete. Found ' + (results?.documents?.[0]?.length || 0) + ' docs.');
 
         const sortedContext = [];
         let topScore = 0;
@@ -886,12 +888,14 @@ Rules:
             }
         } else {
             try {
+                console.log('[SDK] [DEBUG] Calling Ollama Chat model...');
                 const resp = await this.ollama.chat({
                     model: this.chatModel,
                     messages: chatMessages,
                     stream: false,
                     options: { temperature: 0.3, num_predict: 128 }
                 });
+                console.log('[SDK] [DEBUG] Ollama Chat response received.');
 
                 let answer = (resp.message?.content || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
 
